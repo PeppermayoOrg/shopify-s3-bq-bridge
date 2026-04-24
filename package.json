@@ -18,7 +18,11 @@
   "scripts": {
     "build": "rm -rf dist lambda.zip && mkdir -p dist && cp -R src dist/ && cp package.json package-lock.json dist/ && (cd dist && npm ci --omit=dev --no-audit --no-fund) && (cd dist && zip -qr ../lambda.zip src node_modules) && rm -rf dist",
     "backfill": "node scripts/historical_sync.js",
-    "deploy:sql": "bash scripts/deploy_scheduled_queries.sh"
+    "backfill:fx": "node scripts/historical_sync.js fx",
+    "backfill:products": "node scripts/historical_sync.js products",
+    "backfill:all": "node scripts/historical_sync.js all",
+    "deploy:sql": "bash scripts/deploy_scheduled_queries.sh",
+    "deploy:views": "bash scripts/deploy_views.sh"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1034.0",

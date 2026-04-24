@@ -45,7 +45,10 @@ WHEN MATCHED THEN
     sku = S.sku,
     name = S.name,
     size = S.size,
-    colour = S.colour
+    colour = S.colour,
+    vendor = S.vendor,
+    total_discount = S.total_discount,
+    compare_at_price = S.compare_at_price
 WHEN NOT MATCHED THEN
-  INSERT (line_item_id, order_id, product_id, variant_id, sku, name, quantity, price, size, colour)
-  VALUES (S.line_item_id, S.order_id, S.product_id, S.variant_id, S.sku, S.name, S.quantity, S.price, S.size, S.colour);
+  INSERT (line_item_id, order_id, store_region, created_at, product_id, variant_id, sku, name, quantity, price, size, colour, vendor, total_discount, compare_at_price, gift_card)
+  VALUES (S.line_item_id, S.order_id, S.store_region, S.created_at, S.product_id, S.variant_id, S.sku, S.name, S.quantity, S.price, S.size, S.colour, S.vendor, S.total_discount, S.compare_at_price, S.gift_card);
