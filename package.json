@@ -1,0 +1,32 @@
+{
+  "name": "shopify-s3-bq-bridge",
+  "version": "1.0.0",
+  "description": "Daily sync from Peppermayo's five Shopify storefronts (AU, US, UK, CA, EU) to a BigQuery warehouse, via S3. Contains the extraction Lambda, historical backfill script, and the SQL that drives the BigQuery Data Transfer + scheduled MERGE upserts.",
+  "private": true,
+  "homepage": "https://github.com/PeppermayoOrg/shopify-s3-bq-bridge#readme",
+  "bugs": {
+    "url": "https://github.com/PeppermayoOrg/shopify-s3-bq-bridge/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/PeppermayoOrg/shopify-s3-bq-bridge.git"
+  },
+  "license": "UNLICENSED",
+  "author": "Ritchie Vincent",
+  "type": "commonjs",
+  "main": "src/lambda/index.js",
+  "scripts": {
+    "build": "rm -rf dist lambda.zip && mkdir -p dist && cp -R src dist/ && cp package.json package-lock.json dist/ && (cd dist && npm ci --omit=dev --no-audit --no-fund) && (cd dist && zip -qr ../lambda.zip src node_modules) && rm -rf dist",
+    "backfill": "node scripts/historical_sync.js",
+    "deploy:sql": "bash scripts/deploy_scheduled_queries.sh"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1034.0",
+    "@aws-sdk/client-ssm": "^3.1034.0",
+    "axios": "^1.15.2",
+    "csv-writer": "^1.6.0"
+  },
+  "devDependencies": {
+    "dotenv": "^17.4.2"
+  }
+}
