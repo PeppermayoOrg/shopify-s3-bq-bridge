@@ -84,10 +84,37 @@ bq query --use_legacy_sql=false < sql/ddl/create_staging_products_tables.sql
 
 (`products_master` and `product_variants_master` are not pre-created — `refresh_products_master.sql` issues `CREATE OR REPLACE TABLE` on every run.)
 
-> **Note on schema changes.** When the master-table shape changes, drop
-> and recreate the master and staging tables before deploying the Lambda and
-> redeploying the MERGE SQL, then re-run the historical backfill. The daily
-> pipeline will repopulate the last 26 hours on its next run.
+> **Note on schema changes.** BigQuery CSV loads bind columns by **ordinal
+> position** — the header row is only consumed via `skip_leading_rows`
+> and column names are never matched. This has two strict consequences:
+>
+> 1. **Never use `ALTER TABLE ADD COLUMN` on a CSV-loaded staging or master
+>    table.** `ADD COLUMN` appends at the end, but the CSV will still put
+>    the new column at its repo-declared position — loads will silently
+>    mis-assign every column after the insertion point (and eventually
+>    fail when a type mismatch surfaces, as on 2026-04-23 with
+>    `source_name`).
+> 2. **Column order in staging DDL must match the `_HEADER` arrays in
+>    [src/shared/utils.js](src/shared/utils.js) exactly.** A pre-build
+>    guard (`npm run verify:schema`, wired into `npm run build`)
+>    enforces this. Do not bypass it.
+> 3. **Before and after any schema-changing deploy, run
+>    `npm run verify:schema:live`.** This extends the static check by
+>    shelling out to `bq show` for every staging + master table and
+>    diffing the live column order against the repo DDL. Catches drift
+>    that originated outside this repo (e.g. a console `ALTER TABLE ADD
+>    COLUMN` — which is how the 2026-04-23 incident happened). Requires
+>    `bq` CLI auth. Override the dataset with `BQ_DATASET=...` env var
+>    (default: `peppermayo`).
+>
+> When the master-table shape changes: write a migration under
+> `sql/migrations/` that rebuilds staging (`DROP` + `CREATE`) and master
+> (`CREATE OR REPLACE TABLE ... AS SELECT`, preserving data) with the
+> columns in the correct order. Deploy the migration **before** the new
+> Lambda. The daily pipeline will repopulate the last 26 hours on its
+> next run; a full historical backfill is only needed when a newly added
+> column requires historical values (not auto-populatable via MERGE from
+> future Shopify `updated_at` bumps).
 
 ## Deploy the semantic-layer views
 

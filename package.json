@@ -16,7 +16,9 @@
   "type": "commonjs",
   "main": "src/lambda/index.js",
   "scripts": {
-    "build": "rm -rf dist lambda.zip && mkdir -p dist && cp -R src dist/ && cp package.json package-lock.json dist/ && (cd dist && npm ci --omit=dev --no-audit --no-fund) && (cd dist && zip -qr ../lambda.zip src node_modules) && rm -rf dist",
+    "build": "npm run verify:schema && rm -rf dist lambda.zip && mkdir -p dist && cp -R src dist/ && cp package.json package-lock.json dist/ && (cd dist && npm ci --omit=dev --no-audit --no-fund) && (cd dist && zip -qr ../lambda.zip src node_modules) && rm -rf dist",
+    "verify:schema": "node scripts/verify_schema_alignment.js",
+    "verify:schema:live": "node scripts/verify_schema_alignment.js --live",
     "backfill": "node scripts/historical_sync.js",
     "backfill:fx": "node scripts/historical_sync.js fx",
     "backfill:products": "node scripts/historical_sync.js products",
