@@ -12,7 +12,18 @@
 -- IDs are globally unique across stores, so this is safe today. If a
 -- non-Shopify source is ever added, revisit this join key.
 MERGE `peppermayo.orders_master` T
-USING `peppermayo.staging_orders` S
+USING (
+  -- Dedupe staging by order_id first. The daily DTS uses WRITE_TRUNCATE
+  -- against `daily/orders/*.csv`, so it re-loads every CSV ever written
+  -- under that prefix. Combined with the lambda's 2h window overlap,
+  -- the same order_id appears in multiple days' files. Without dedupe
+  -- BigQuery would eventually reject the merge with
+  -- "UPDATE/MERGE must match at most one source row for each target row".
+  -- Pick the row with the latest updated_at so the freshness guard below
+  -- (`S.updated_at > T.updated_at`) sees the most recent snapshot.
+  SELECT * FROM `peppermayo.staging_orders`
+  QUALIFY ROW_NUMBER() OVER (PARTITION BY order_id ORDER BY updated_at DESC) = 1
+) S
 ON T.order_id = S.order_id
 WHEN MATCHED AND S.updated_at > T.updated_at THEN
   UPDATE SET

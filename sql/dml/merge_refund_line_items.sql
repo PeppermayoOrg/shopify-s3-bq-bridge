@@ -4,8 +4,20 @@
 
 MERGE `peppermayo.refund_line_items_master` T
 USING (
+  -- Dedupe staging by refund_line_item_id first: the daily DTS uses
+  -- WRITE_TRUNCATE against `daily/refund_items/*.csv`, so it re-loads
+  -- every CSV ever written under that prefix. Combined with the
+  -- lambda's 2h window overlap, the same refund_line_item_id appears
+  -- in multiple days' files.
+  WITH refund_items_dedup AS (
+    SELECT * FROM `peppermayo.staging_refund_line_items`
+    QUALIFY ROW_NUMBER() OVER (
+      PARTITION BY refund_line_item_id
+      ORDER BY refund_processed_at DESC NULLS LAST
+    ) = 1
+  )
   SELECT s.*
-  FROM `peppermayo.staging_refund_line_items` s
+  FROM refund_items_dedup s
   JOIN `peppermayo.refunds_master` r USING (refund_id)
 ) S
 ON T.refund_line_item_id = S.refund_line_item_id

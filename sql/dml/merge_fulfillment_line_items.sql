@@ -3,8 +3,21 @@
 
 MERGE `peppermayo.fulfillment_line_items_master` T
 USING (
+  -- Dedupe staging by composite key (fulfillment_id, line_item_id)
+  -- first: the daily DTS uses WRITE_TRUNCATE against
+  -- `daily/fulfillment_items/*.csv`, so it re-loads every CSV ever
+  -- written under that prefix. Combined with the lambda's 2h window
+  -- overlap, the same (fulfillment_id, line_item_id) appears in
+  -- multiple days' files.
+  WITH fulfillment_items_dedup AS (
+    SELECT * FROM `peppermayo.staging_fulfillment_line_items`
+    QUALIFY ROW_NUMBER() OVER (
+      PARTITION BY fulfillment_id, line_item_id
+      ORDER BY fulfilled_at DESC NULLS LAST
+    ) = 1
+  )
   SELECT s.*
-  FROM `peppermayo.staging_fulfillment_line_items` s
+  FROM fulfillment_items_dedup s
   JOIN `peppermayo.fulfillments_master` f USING (fulfillment_id)
 ) S
 ON T.fulfillment_id = S.fulfillment_id

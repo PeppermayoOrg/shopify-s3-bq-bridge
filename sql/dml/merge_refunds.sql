@@ -11,8 +11,20 @@ USING (
   -- This handles the edge case where a refund arrived in the staging
   -- slice but the order itself was rejected by merge_orders.sql
   -- (because master had a fresher copy than staging).
+  --
+  -- Dedupe staging by refund_id first: the daily DTS uses WRITE_TRUNCATE
+  -- against `daily/refunds/*.csv`, so it re-loads every CSV ever written
+  -- under that prefix. Combined with the lambda's 2h window overlap,
+  -- the same refund_id appears in multiple days' files.
+  WITH refunds_dedup AS (
+    SELECT * FROM `peppermayo.staging_refunds`
+    QUALIFY ROW_NUMBER() OVER (
+      PARTITION BY refund_id
+      ORDER BY processed_at DESC NULLS LAST, created_at DESC NULLS LAST
+    ) = 1
+  )
   SELECT s.*
-  FROM `peppermayo.staging_refunds` s
+  FROM refunds_dedup s
   JOIN `peppermayo.orders_master` o USING (order_id)
 ) S
 ON T.refund_id = S.refund_id

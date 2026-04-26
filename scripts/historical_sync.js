@@ -100,6 +100,7 @@ async function fetchAndStream(domain, token, createdAtMin, createdAtMax, region,
     refunds: 0, refundItems: 0,
     fulfillments: 0, fulfillmentItems: 0,
   };
+  let pageNum = 0;
 
   async function writeBatch(path, header, records, initKey) {
     if (!records.length) return;
@@ -111,6 +112,7 @@ async function fetchAndStream(domain, token, createdAtMin, createdAtMax, region,
   while (url) {
     const response = await fetchWithRetry(url, headers);
     const page = response.data.orders || [];
+    pageNum += 1;
 
     if (page.length) {
       const {
@@ -134,6 +136,14 @@ async function fetchAndStream(domain, token, createdAtMin, createdAtMax, region,
       totals.fulfillmentItems += fulfillmentItemRows.length;
     }
 
+    // Per-page progress — a long month can be 50+ pages and the user
+    // otherwise has no signal that the script is alive.
+    process.stdout.write(
+      `  page ${String(pageNum).padStart(3)} → ${String(page.length).padStart(3)} orders` +
+      ` (running totals: ${totals.orders} orders / ${totals.items} items` +
+      ` / ${totals.refunds} refunds / ${totals.fulfillments} fulfillments)\n`,
+    );
+
     const callLimit = response.headers["x-shopify-shop-api-call-limit"];
     if (callLimit) {
       const [current, max] = callLimit.split("/").map(Number);
@@ -144,6 +154,42 @@ async function fetchAndStream(domain, token, createdAtMin, createdAtMax, region,
   }
 
   return totals;
+}
+
+// Resolve the six historical/* file paths and S3 keys for one
+// (region, fileMonth) pair. Used by both runOrdersBackfill and
+// runOrdersGapFill so the path conventions stay in lockstep.
+function historicalFilePaths(region, fileMonth) {
+  const stem = `${region}_%s_historical_${fileMonth}.csv`;
+  return {
+    orders:           path.join(SCRATCH_DIR, stem.replace("%s", "orders")),
+    items:            path.join(SCRATCH_DIR, stem.replace("%s", "items")),
+    refunds:          path.join(SCRATCH_DIR, stem.replace("%s", "refunds")),
+    refundItems:      path.join(SCRATCH_DIR, stem.replace("%s", "refund_items")),
+    fulfillments:     path.join(SCRATCH_DIR, stem.replace("%s", "fulfillments")),
+    fulfillmentItems: path.join(SCRATCH_DIR, stem.replace("%s", "fulfillment_items")),
+  };
+}
+
+async function uploadHistoricalSet(files) {
+  await uploadAndCleanup(files.orders,           `historical/orders/${path.basename(files.orders)}`);
+  await uploadAndCleanup(files.items,            `historical/items/${path.basename(files.items)}`);
+  await uploadAndCleanup(files.refunds,          `historical/refunds/${path.basename(files.refunds)}`);
+  await uploadAndCleanup(files.refundItems,      `historical/refund_items/${path.basename(files.refundItems)}`);
+  await uploadAndCleanup(files.fulfillments,     `historical/fulfillments/${path.basename(files.fulfillments)}`);
+  await uploadAndCleanup(files.fulfillmentItems, `historical/fulfillment_items/${path.basename(files.fulfillmentItems)}`);
+}
+
+// Convert 'YYYY-MM' to the inclusive UTC ISO bounds for that month.
+function monthToBounds(yyyymm) {
+  const m = /^(\d{4})-(\d{2})$/.exec(yyyymm);
+  if (!m) throw new Error(`Invalid month: ${yyyymm} (expected YYYY-MM)`);
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  if (mo < 1 || mo > 12) throw new Error(`Invalid month: ${yyyymm}`);
+  const start = new Date(Date.UTC(y, mo - 1, 1));
+  const end = new Date(Date.UTC(mo === 12 ? y + 1 : y, mo === 12 ? 0 : mo, 1));
+  return { start, end };
 }
 
 async function runOrdersBackfill(storeStartDates) {
@@ -167,16 +213,7 @@ async function runOrdersBackfill(storeStartDates) {
       const createdAtMin = currentStart.toISOString();
       const createdAtMax = currentEnd.toISOString();
       const fileMonth = currentStart.toISOString().slice(0, 7);
-
-      const stem = `${region}_%s_historical_${fileMonth}.csv`;
-      const files = {
-        orders:           path.join(SCRATCH_DIR, stem.replace("%s", "orders")),
-        items:            path.join(SCRATCH_DIR, stem.replace("%s", "items")),
-        refunds:          path.join(SCRATCH_DIR, stem.replace("%s", "refunds")),
-        refundItems:      path.join(SCRATCH_DIR, stem.replace("%s", "refund_items")),
-        fulfillments:     path.join(SCRATCH_DIR, stem.replace("%s", "fulfillments")),
-        fulfillmentItems: path.join(SCRATCH_DIR, stem.replace("%s", "fulfillment_items")),
-      };
+      const files = historicalFilePaths(region, fileMonth);
 
       console.log(`Fetching ${region}: ${fileMonth}...`);
       const totals = await fetchAndStream(
@@ -189,12 +226,7 @@ async function runOrdersBackfill(storeStartDates) {
       );
 
       if (totals.orders > 0) {
-        await uploadAndCleanup(files.orders,           `historical/orders/${path.basename(files.orders)}`);
-        await uploadAndCleanup(files.items,            `historical/items/${path.basename(files.items)}`);
-        await uploadAndCleanup(files.refunds,          `historical/refunds/${path.basename(files.refunds)}`);
-        await uploadAndCleanup(files.refundItems,      `historical/refund_items/${path.basename(files.refundItems)}`);
-        await uploadAndCleanup(files.fulfillments,     `historical/fulfillments/${path.basename(files.fulfillments)}`);
-        await uploadAndCleanup(files.fulfillmentItems, `historical/fulfillment_items/${path.basename(files.fulfillmentItems)}`);
+        await uploadHistoricalSet(files);
         console.log(
           `Uploaded ${fileMonth}: ${totals.orders} orders, ${totals.items} items, ` +
           `${totals.refunds} refunds (${totals.refundItems} items), ` +
@@ -204,6 +236,51 @@ async function runOrdersBackfill(storeStartDates) {
         console.log(`No orders found for ${fileMonth}.`);
       }
       currentStart = currentEnd;
+    }
+  }
+}
+
+// Targeted gap-fill. Runs only the (region, month) pairs in the
+// supplied list. Same MERGE-guarded write path as the full backfill,
+// so re-running an already-loaded month is a no-op for unchanged rows
+// and still picks up any missing inserts.
+async function runOrdersGapFill(targets) {
+  assertTokens();
+  if (!targets.length) {
+    console.log("No BACKFILL_MONTHS configured — nothing to do.");
+    return;
+  }
+  console.log(`\n--- Gap-fill: ${targets.length} (region, month) pair(s) ---`);
+
+  for (const { region, month } of targets) {
+    const config = STORES[region];
+    if (!config) {
+      throw new Error(`Unknown region in BACKFILL_MONTHS: ${region}`);
+    }
+    const { start, end } = monthToBounds(month);
+    const createdAtMin = start.toISOString();
+    const createdAtMax = end.toISOString();
+    const files = historicalFilePaths(region, month);
+
+    console.log(`\nFetching ${region}: ${month} (${createdAtMin} → ${createdAtMax})…`);
+    const totals = await fetchAndStream(
+      config.domain,
+      config.token,
+      createdAtMin,
+      createdAtMax,
+      region,
+      files,
+    );
+
+    if (totals.orders > 0) {
+      await uploadHistoricalSet(files);
+      console.log(
+        `Uploaded ${region} ${month}: ${totals.orders} orders, ${totals.items} items, ` +
+        `${totals.refunds} refunds (${totals.refundItems} items), ` +
+        `${totals.fulfillments} fulfillments (${totals.fulfillmentItems} items).`,
+      );
+    } else {
+      console.log(`No orders found for ${region} ${month}.`);
     }
   }
 }
@@ -275,9 +352,21 @@ async function runFxBackfill({ startDate = "2020-01-01", endDate } = {}) {
 // ---------------------------------------------------------------------------
 // Configuration
 // ---------------------------------------------------------------------------
-// You can easily choose what stores and what date to start from by modifying
-// this object. Use the "YYYY-MM-DD" format. To skip a store completely,
-// comment it out or remove it from the object.
+// Two ways to run an orders backfill:
+//
+//  1. Full backfill (default). Each region walks forward one month at
+//     a time from its START_DATES entry to today. Use this for the
+//     initial historical load.
+//
+//  2. Targeted gap-fill. Set BACKFILL_MONTHS to a non-empty list of
+//     (region, month) pairs and run `npm run backfill -- gaps`. Only
+//     those specific months are fetched and uploaded, and the merge
+//     guard (S.updated_at > T.updated_at) makes the re-load safe even
+//     for months that already have rows in master. Use this to repair
+//     known gaps surfaced by `npm run verify:counts`.
+//
+// Use the "YYYY-MM-DD" format for START_DATES and "YYYY-MM" for months.
+// To skip a store completely, comment its entry out.
 //
 // Default configuration (all stores, all history):
 // const START_DATES = {
@@ -289,25 +378,35 @@ async function runFxBackfill({ startDate = "2020-01-01", endDate } = {}) {
 // };
 
 const START_DATES = {
-  au: "2020-01-01",
-  us: "2020-01-01",
-  uk: "2020-01-01",
-  ca: "2020-01-01",
-  eu: "2020-01-01",
+  // au: "2020-01-01",
+  // us: "2020-01-01",
+  // uk: "2020-01-01",
+  // ca: "2020-01-01",
+  // eu: "2020-01-01",
 };
 
-// Dispatch on `npm run backfill -- <orders|fx|products|all>`. Defaults to
-// `orders` so existing muscle memory (`npm run backfill`) keeps working.
+// Targeted (region, month) pairs to re-fetch. Edit this list, then run
+// `npm run backfill -- gaps`. Leave empty in normal operation.
+const BACKFILL_MONTHS = [
+  // { region: "au", month: "2024-10" },
+  // { region: "au", month: "2025-01" },
+];
+
+// Dispatch on `npm run backfill -- <orders|gaps|fx|products|all>`.
+// Defaults to `orders` so existing muscle memory keeps working.
 async function main() {
   const mode = (process.argv[2] || "orders").toLowerCase();
-  if (!["orders", "fx", "products", "all"].includes(mode)) {
-    console.error(`Unknown mode: ${mode}. Expected one of: orders, fx, products, all`);
+  if (!["orders", "gaps", "fx", "products", "all"].includes(mode)) {
+    console.error(`Unknown mode: ${mode}. Expected one of: orders, gaps, fx, products, all`);
     process.exit(1);
   }
   console.log(`Scratch dir: ${SCRATCH_DIR}`);
 
   if (mode === "orders" || mode === "all") {
     await runOrdersBackfill(START_DATES);
+  }
+  if (mode === "gaps") {
+    await runOrdersGapFill(BACKFILL_MONTHS);
   }
   if (mode === "fx" || mode === "all") {
     // FX backfill covers every date any order could land on.

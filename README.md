@@ -9,7 +9,8 @@ See [architecture.md](architecture.md) for the full design.
 ```text
 src/lambda/index.js                     Daily (orders+fx) and weekly (products) Lambda
 src/shared/utils.js                     Shared Shopify/FX → CSV mapping, retry, pagination
-scripts/historical_sync.js              One-off backfill (orders, fx, products, all)
+scripts/historical_sync.js              One-off backfill (orders, fx, products, all) + targeted gap-fill
+scripts/verify_data.js                  Data integrity verifier (counts, revenue, spotcheck, diff) — see VERIFY.md
 scripts/deploy_scheduled_queries.sh     Push sql/dml/*.sql into BigQuery Scheduled Queries
 scripts/deploy_views.sh                 Push sql/ddl/views/*.sql into BigQuery views
 sql/ddl/                                Master + staging table definitions (orders, items, refunds,
@@ -334,3 +335,12 @@ Weekly (Mondays):
 1. 14:00 UTC — Lambda invoked with `{"mode":"products"}` pulls the catalog per region into `weekly/products/` and `weekly/product_variants/`.
 2. 14:30 UTC — two weekly Data Transfers load them into `staging_products` / `staging_product_variants`.
 3. 14:45 UTC — **Weekly Products Refresh** rebuilds `products_master` and `product_variants_master` via `CREATE OR REPLACE TABLE`.
+
+## Verifying data integrity
+
+See [VERIFY.md](VERIFY.md) for step-by-step instructions on auditing the
+warehouse against Shopify (counts, revenue, spotcheck, diff modes), plus
+recovery procedures for any gaps surfaced by the checks. Run a
+quick-audit (`npm run verify:counts` + `npm run verify:spotcheck -- 50`)
+after every backfill or schema change, and the full-audit recipe
+quarterly.

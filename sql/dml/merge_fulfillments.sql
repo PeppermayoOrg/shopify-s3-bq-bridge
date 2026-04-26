@@ -8,8 +8,22 @@
 
 MERGE `peppermayo.fulfillments_master` T
 USING (
+  -- Dedupe staging by fulfillment_id first: the daily DTS uses
+  -- WRITE_TRUNCATE against `daily/fulfillments/*.csv`, so it re-loads
+  -- every CSV ever written under that prefix. Combined with the
+  -- lambda's 2h window overlap, the same fulfillment_id appears in
+  -- multiple days' files. Pick the row with the latest fulfilled_at
+  -- (falling back to created_at) so shipment_status transitions
+  -- (label_purchased -> in_transit -> delivered) land correctly.
+  WITH fulfillments_dedup AS (
+    SELECT * FROM `peppermayo.staging_fulfillments`
+    QUALIFY ROW_NUMBER() OVER (
+      PARTITION BY fulfillment_id
+      ORDER BY fulfilled_at DESC NULLS LAST, created_at DESC NULLS LAST
+    ) = 1
+  )
   SELECT s.*
-  FROM `peppermayo.staging_fulfillments` s
+  FROM fulfillments_dedup s
   JOIN `peppermayo.orders_master` o USING (order_id)
 ) S
 ON T.fulfillment_id = S.fulfillment_id

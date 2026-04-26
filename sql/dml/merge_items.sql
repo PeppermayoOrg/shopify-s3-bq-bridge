@@ -31,9 +31,24 @@
 -- scoped to the order_ids present in staging.
 MERGE `peppermayo.order_items_master` T
 USING (
+  -- Dedupe staging by primary key first. The daily DTS configs match
+  -- `daily/items/*.csv` and `daily/orders/*.csv` with WRITE_TRUNCATE, so
+  -- staging accumulates every CSV ever written under those prefixes,
+  -- which means the same line_item_id / order_id can appear across
+  -- multiple days' files (the lambda also overlaps windows by 2h).
+  -- Without dedupe BigQuery rejects the merge with
+  -- "UPDATE/MERGE must match at most one source row for each target row".
+  WITH items_dedup AS (
+    SELECT * FROM `peppermayo.staging_order_items`
+    QUALIFY ROW_NUMBER() OVER (PARTITION BY line_item_id ORDER BY created_at DESC) = 1
+  ),
+  orders_dedup AS (
+    SELECT order_id, updated_at FROM `peppermayo.staging_orders`
+    QUALIFY ROW_NUMBER() OVER (PARTITION BY order_id ORDER BY updated_at DESC) = 1
+  )
   SELECT S.*
-  FROM `peppermayo.staging_order_items` S
-  JOIN `peppermayo.staging_orders` SO USING (order_id)
+  FROM items_dedup S
+  JOIN orders_dedup SO USING (order_id)
   JOIN `peppermayo.orders_master` M USING (order_id)
   WHERE SO.updated_at = M.updated_at
 ) S
