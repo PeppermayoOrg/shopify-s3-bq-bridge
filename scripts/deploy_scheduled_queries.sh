@@ -20,12 +20,14 @@
 #   ./scripts/deploy_scheduled_queries.sh items        # items only
 #   ./scripts/deploy_scheduled_queries.sh fx           # fx merge only
 #   ./scripts/deploy_scheduled_queries.sh customers    # customers refresh only
+#   ./scripts/deploy_scheduled_queries.sh refundid     # refundid merge only
 #
 # The FX and Customers transferConfig IDs aren't hardcoded (they were
 # added later). Either export them before running:
 #
 #   FX_CFG="projects/.../transferConfigs/..." \
 #     CUSTOMERS_CFG="projects/.../transferConfigs/..." \
+#     REFUNDID_CFG="projects/.../transferConfigs/..." \
 #     ./scripts/deploy_scheduled_queries.sh all
 #
 # Or edit this script and set them inline next to ORDERS_CFG / ITEMS_CFG
@@ -46,6 +48,7 @@ FULFILLMENT_ITEMS_CFG="projects/229575872283/locations/australia-southeast1/tran
 PRODUCTS_CFG="projects/229575872283/locations/australia-southeast1/transferConfigs/69ea8d00-0000-23ca-9040-94eb2c1b9828"
 CUSTOMERS_CFG="projects/229575872283/locations/australia-southeast1/transferConfigs/69e9ec9f-0000-23a8-90ac-f403045d80ea"
 FX_CFG="projects/229575872283/locations/australia-southeast1/transferConfigs/69ecec40-0000-220f-b077-94eb2c1bbb4e"
+REFUNDID_CFG="${REFUNDID_CFG:-}"
 # Populate these after creating the BQ Scheduled Queries in the console.
 # See README.md → "BigQuery Scheduled Queries to configure" for the
 # expected schedule and SQL file for each.
@@ -67,6 +70,7 @@ REFUND_ITEMS_SQL="$REPO_ROOT/sql/dml/merge_refund_line_items.sql"
 FULFILLMENTS_SQL="$REPO_ROOT/sql/dml/merge_fulfillments.sql"
 FULFILLMENT_ITEMS_SQL="$REPO_ROOT/sql/dml/merge_fulfillment_line_items.sql"
 PRODUCTS_SQL="$REPO_ROOT/sql/dml/refresh_products_master.sql"
+REFUNDID_SQL="$REPO_ROOT/sql/dml/merge_refundid_returns.sql"
 
 command -v bq >/dev/null || { echo "bq CLI not found"; exit 1; }
 command -v jq >/dev/null || { echo "jq not found"; exit 1; }
@@ -112,6 +116,7 @@ case "$target" in
   fulfillments)      push "Daily Shopify Merge - Fulfillments"     "$FULFILLMENTS_CFG"      "$FULFILLMENTS_SQL" ;;
   fulfillment_items) push "Daily Shopify Merge - Fulfillment Items" "$FULFILLMENT_ITEMS_CFG" "$FULFILLMENT_ITEMS_SQL" ;;
   products)          push "Weekly Products Refresh"                "$PRODUCTS_CFG"          "$PRODUCTS_SQL" ;;
+  refundid)          push "Daily Refundid Merge"                   "$REFUNDID_CFG"          "$REFUNDID_SQL" ;;
   all)
     push "Daily Shopify Merge - Orders"            "$ORDERS_CFG"            "$ORDERS_SQL"
     push "Daily Shopify Merge - Items"             "$ITEMS_CFG"             "$ITEMS_SQL"
@@ -122,8 +127,9 @@ case "$target" in
     push "Daily FX Merge"                          "$FX_CFG"                "$FX_SQL"
     push "Daily Customers Refresh"                 "$CUSTOMERS_CFG"         "$CUSTOMERS_SQL"
     push "Weekly Products Refresh"                 "$PRODUCTS_CFG"          "$PRODUCTS_SQL"
+    push "Daily Refundid Merge"                    "$REFUNDID_CFG"          "$REFUNDID_SQL"
     ;;
-  *) echo "Unknown target: $target (expected: orders | items | fx | customers | refunds | refund_items | fulfillments | fulfillment_items | products | all)"; exit 1 ;;
+  *) echo "Unknown target: $target (expected: orders | items | fx | customers | refunds | refund_items | fulfillments | fulfillment_items | products | refundid | all)"; exit 1 ;;
 esac
 
 echo

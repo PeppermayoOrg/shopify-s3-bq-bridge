@@ -1,6 +1,6 @@
 # shopify-s3-bq-bridge
 
-Daily sync from Peppermayo's five Shopify storefronts (AU, US, UK, CA, EU) to a BigQuery warehouse, via S3.
+Daily sync from Peppermayo's five Shopify storefronts (AU, US, UK, CA, EU) and Refundid to a BigQuery warehouse, via S3.
 
 See [architecture.md](architecture.md) for the full design.
 
@@ -9,12 +9,14 @@ See [architecture.md](architecture.md) for the full design.
 ```text
 src/lambda/index.js                     Daily (orders+fx) and weekly (products) Lambda
 src/shared/utils.js                     Shared Shopify/FX → CSV mapping, retry, pagination
+src/shared/refundid.js                  Refundid API client and daily extraction
 scripts/historical_sync.js              One-off backfill (orders, fx, products, all) + targeted gap-fill
+scripts/historical_refundid.js          One-off backfill for Refundid returns
 scripts/verify_data.js                  Data integrity verifier (counts, revenue, spotcheck, diff) — see VERIFY.md
 scripts/deploy_scheduled_queries.sh     Push sql/dml/*.sql into BigQuery Scheduled Queries
 scripts/deploy_views.sh                 Push sql/ddl/views/*.sql into BigQuery views
 sql/ddl/                                Master + staging table definitions (orders, items, refunds,
-                                        fulfillments, products, customers, fx)
+                                        fulfillments, products, customers, fx, refundid)
 sql/ddl/views/                          Semantic-layer views (v_orders, v_order_items, v_refunds,
                                         v_fulfillments, v_products, v_product_performance, …)
 sql/dml/                                MERGE / REFRESH statements run by BigQuery Scheduled Queries

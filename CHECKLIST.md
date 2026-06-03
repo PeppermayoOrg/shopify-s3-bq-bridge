@@ -15,10 +15,10 @@ Dataset: `peppermayo` in `australia-southeast1`. S3 bucket:
 
 - [ ] Node.js 24+ installed: `node -v`
 - [ ] Dependencies install cleanly: `npm install`
-- [ ] `.env` present with five Shopify tokens (see [.env.example](.env.example)):
+- [ ] `.env` present with five Shopify and five Refundid tokens (see .env.example):
 
   ```sh
-  grep -c '^SHOPIFY_TOKEN_\(AU\|US\|UK\|CA\|EU\)=' .env   # expect 5
+  grep -c '^\(SHOPIFY\|REFUNDID\)_TOKEN_\(AU\|US\|UK\|CA\|EU\)=' .env   # expect 10
   ```
 
 - [ ] AWS CLI authenticated to the right account: `aws sts get-caller-identity`

@@ -11,8 +11,8 @@ things up.
 
 ## BigQuery Data Transfer Service → S3
 
-The nine DTS configs (seven daily: orders, items, refunds, refund_items,
-fulfillments, fulfillment_items, FX; two weekly: products, product_variants)
+The ten DTS configs (eight daily: orders, items, refunds, refund_items,
+fulfillments, fulfillment_items, FX, refundid; two weekly: products, product_variants)
 authenticate to AWS as a dedicated IAM user with read-only access scoped to
 the `daily/`, `weekly/`, and `historical/` prefixes of the
 `peppermayo-shopify-orders` bucket. Specifically the user needs
@@ -20,11 +20,11 @@ the `daily/`, `weekly/`, and `historical/` prefixes of the
 
 - `daily/orders/*`, `daily/items/*`, `daily/refunds/*`,
   `daily/refund_items/*`, `daily/fulfillments/*`,
-  `daily/fulfillment_items/*`, `daily/fx/*`
+  `daily/fulfillment_items/*`, `daily/fx/*`, `daily/refundid/*`
 - `weekly/products/*`, `weekly/product_variants/*`
 - `historical/orders/*`, `historical/items/*`, `historical/refunds/*`,
   `historical/refund_items/*`, `historical/fulfillments/*`,
-  `historical/fulfillment_items/*`, `historical/fx/*`
+  `historical/fulfillment_items/*`, `historical/fx/*`, `historical/refundid/*`
 
 When creating or rotating that user, you will need:
 

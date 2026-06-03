@@ -33,6 +33,8 @@ const {
   fetchFxRates,
 } = require("../shared/utils");
 
+const { syncDailyRefundid } = require("../shared/refundid");
+
 const API_VERSION = "2026-01";
 const S3_BUCKET = process.env.S3_BUCKET || "peppermayo-shopify-orders";
 const ROLLING_WINDOW_HOURS = 26;
@@ -317,8 +319,20 @@ exports.handler = async (event = {}) => {
     failures.push({ region: "fx", error: err.message });
   }
 
+  // Refundid sync runs as a parallel domain ingestion.
+  // Fails independently so as not to block Shopify/FX data from landing.
+  let refundidResult = null;
+  try {
+    console.log(`[refundid] starting daily sync for ${dateStr}`);
+    await syncDailyRefundid();
+    refundidResult = "success";
+  } catch (err) {
+    console.error(`[refundid] sync failed:`, err);
+    failures.push({ region: "refundid", error: err.message });
+  }
+
   if (failures.length > 0) {
-    const summary = { window: { updatedAtMin, updatedAtMax }, results, fx: fxResult, failures };
+    const summary = { window: { updatedAtMin, updatedAtMax }, results, fx: fxResult, refundid: refundidResult, failures };
     throw new Error(
       `Daily sync completed with ${failures.length} failure(s): ${JSON.stringify(summary)}`,
     );
@@ -330,6 +344,7 @@ exports.handler = async (event = {}) => {
       window: { updatedAtMin, updatedAtMax },
       results,
       fx: fxResult,
+      refundid: refundidResult
     }),
   };
 };

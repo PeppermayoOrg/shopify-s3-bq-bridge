@@ -2,7 +2,7 @@
 
 ## 1. Overview
 
-This pipeline synchronises order data from Peppermayo's five Shopify storefronts (AU, US, UK, CA, EU) into a single Google BigQuery warehouse. Nested Shopify JSON is flattened into a relational schema, PII is stripped at the extraction layer, and daily upserts keep the warehouse consistent with Shopify as orders move through their lifecycle.
+This pipeline synchronises order data from Peppermayo's five Shopify storefronts (AU, US, UK, CA, EU) and return data from Refundid into a single Google BigQuery warehouse. Nested Shopify JSON is flattened into a relational schema, PII is stripped at the extraction layer, and daily upserts keep the warehouse consistent with Shopify as orders move through their lifecycle.
 
 The resulting warehouse is the source of truth for BI reporting and for LLM-assisted querying via Claude Cowork.
 
@@ -10,9 +10,9 @@ The resulting warehouse is the source of truth for BI reporting and for LLM-assi
 
 An ETL pipeline split across AWS (extract, stage as files) and GCP (load, transform, serve).
 
-- **Extract** — Node.js Lambda calls the Shopify Admin REST API (`2026-01`) per storefront, and the Frankfurter (ECB-backed) FX API for daily AUD-base rates. A separate weekly invocation of the same Lambda pulls the product catalog.
+- **Extract** — Node.js Lambda calls the Shopify Admin REST API (`2026-01`) per storefront, the Frankfurter (ECB-backed) FX API for daily AUD-base rates, and the Refundid API for return processing. A separate weekly invocation of the same Lambda pulls the product catalog.
 - **Transform** — Each order JSON is flattened into six flat tables (orders, line items, refunds, refund line items, fulfilments, fulfilment line items) in one pass. PII fields are dropped. Timestamps are kept as ISO 8601 strings; BigQuery parses them on load. FX rates are emitted as a seventh CSV. The weekly run produces two more (products, product_variants).
-- **Stage (S3)** — CSVs are written to `s3://peppermayo-shopify-orders/daily/<entity>/` for the daily run, `weekly/<entity>/` for the weekly product pull, and `historical/<entity>/` for one-off backfills.
+- **Stage (S3)** — CSVs are written to `s3://peppermayo-shopify-orders/daily/<entity>/` for the daily run, `weekly/<entity>/` for the weekly product pull, and `historical/<entity>/` for one-off backfills. Refundid data is written as JSONL to `daily/refundid/<region>/` and `historical/refundid/<region>/`.
 - **Load (BigQuery)** — BigQuery Data Transfer Service pulls the latest CSVs into staging tables with `WRITE_TRUNCATE`.
 - **Upsert (BigQuery)** — Scheduled Queries run `MERGE` statements from staging into the master tables. A final pair of scheduled queries rebuilds `customers_master` daily and `products_master` / `product_variants_master` weekly.
 - **Semantic layer** — A family of `v_*` views sits on top of the master tables and exposes AUD/USD-normalised monetary columns, refund-adjusted unit counts, tag/discount arrays, Sydney-local date buckets, and friendly channel names. BI and LLM queries should target these views rather than the raw master tables.
@@ -23,11 +23,11 @@ An ETL pipeline split across AWS (extract, stage as files) and GCP (load, transf
 
 | Component | Purpose |
 | --- | --- |
-| Systems Manager Parameter Store | Stores the Shopify Admin API token for each store as a `SecureString`. Path: `/shopify/peppermayo-<region>/token`. |
-| Lambda (Node.js 24) | Runs two jobs, dispatched on `event.mode`. **Daily** (`mode` absent): reads the 26-hour rolling window of `updated_at`, writes six CSVs per region (orders, items, refunds, refund_items, fulfillments, fulfillment_items) to `/tmp`, uploads to S3. After all regions, makes a single call to Frankfurter for the day's AUD-base FX rates and writes a seventh CSV. **Weekly** (`mode: "products"`): pulls the full product catalog per region and writes two CSVs (products, product_variants) to `weekly/`. Regions process sequentially to prevent `/tmp` storage exhaustion. S3 uploads are wrapped in a retry-with-jitter layer on top of the SDK's internal retries. |
+| Systems Manager Parameter Store | Stores the Shopify Admin API token for each store as a `SecureString`. Path: `/shopify/peppermayo-<region>/token`. Also stores Refundid tokens at `/refundid/peppermayo-<region>/token`. |
+| Lambda (Node.js 24) | Runs two jobs, dispatched on `event.mode`. **Daily** (`mode` absent): reads the 26-hour rolling window of `updated_at`, writes six CSVs per region (orders, items, refunds, refund_items, fulfillments, fulfillment_items) to `/tmp`, uploads to S3. After all regions, makes a single call to Frankfurter for the day's AUD-base FX rates and writes a seventh CSV. Also runs the Refundid sync, placing JSONL data into `daily/refundid/`. **Weekly** (`mode: "products"`): pulls the full product catalog per region and writes two CSVs (products, product_variants) to `weekly/`. Regions process sequentially to prevent `/tmp` storage exhaustion. S3 uploads are wrapped in a retry-with-jitter layer on top of the SDK's internal retries. |
 | EventBridge | Two rules. **Daily**: `cron(0 15 * * ? *)` at 15:00 UTC (01:00 AEST / 02:00 AEDT Sydney, next day) invokes the Lambda with an empty payload — runs the orders + FX sync. **Weekly**: `cron(0 14 ? * MON *)` at 14:00 UTC every Monday invokes the Lambda with `{"mode":"products"}` — runs the product catalog refresh. |
 | S3 (`peppermayo-shopify-orders`) | Raw data lake. Retained for disaster recovery and reprocessing. Bucket versioning and default server-side encryption (AES256) are enabled. |
-| IAM user for BigQuery DTS | Read-only access scoped to the S3 prefixes used by Data Transfer (`daily/orders/`, `daily/items/`, `daily/refunds/`, `daily/refund_items/`, `daily/fulfillments/`, `daily/fulfillment_items/`, `daily/fx/`, `weekly/products/`, `weekly/product_variants/`, plus the `historical/` prefixes for one-off backfills). |
+| IAM user for BigQuery DTS | Read-only access scoped to the S3 prefixes used by Data Transfer (`daily/orders/`, `daily/items/`, `daily/refunds/`, `daily/refund_items/`, `daily/fulfillments/`, `daily/fulfillment_items/`, `daily/fx/`, `daily/refundid/`, `weekly/products/`, `weekly/product_variants/`, plus the `historical/` prefixes for one-off backfills). |
 
 The Lambda uses a 26-hour window (not 24) so that a delayed or retried run still picks up everything that landed during the gap. Orders touched twice in overlapping windows are deduped by the `MERGE`.
 
@@ -36,13 +36,13 @@ The Lambda uses a 26-hour window (not 24) so that a delayed or retried run still
 | Component | Purpose |
 | --- | --- |
 | BigQuery dataset `peppermayo` | Located in `australia-southeast1` (Sydney). All tables and views live here. |
-| BigQuery Data Transfer Service | Nine Amazon S3 transfers. Seven daily transfers all scheduled 15:30 UTC (01:30 AEST / 02:30 AEDT Sydney): orders, items, refunds, refund_items, fulfillments, fulfillment_items, fx — each writing to the matching `staging_*` table. Two weekly transfers scheduled 14:30 UTC Mondays (00:30 AEST / 01:30 AEDT Tuesday): products, product_variants — writing to `staging_products` / `staging_product_variants`. All transfers use `WRITE_TRUNCATE`. Files under `historical/` are **not** watched by any DTS and must be loaded manually once the backfill completes (see §5). |
-| BigQuery Scheduled Queries | Nine queries, all SQL synced from this repo via `scripts/deploy_scheduled_queries.sh` (`npm run deploy:sql`). Daily at 16:00 UTC: **Daily Shopify Merge - Orders** and **Daily Shopify Merge - Items**. 16:05 UTC: **Daily FX Merge**. 16:10 UTC: **Daily Shopify Merge - Refunds** then **Daily Shopify Merge - Refund Items**, then **Daily Shopify Merge - Fulfillments** then **Daily Shopify Merge - Fulfillment Items**. 16:15 UTC: **Daily Customers Refresh** (must run after all above — consumes v_orders/v_order_items which depend on refunds + fulfilments). Weekly Mondays 14:45 UTC: **Weekly Products Refresh** (`refresh_products_master.sql`). BigQuery stores each query's SQL text inside the scheduled-query resource itself, so `deploy:sql` is the only way in-repo SQL makes it into BigQuery. |
+| BigQuery Data Transfer Service | Ten Amazon S3 transfers. Eight daily transfers all scheduled 15:30 UTC (01:30 AEST / 02:30 AEDT Sydney): orders, items, refunds, refund_items, fulfillments, fulfillment_items, fx, refundid — each writing to the matching `staging_*` table. Two weekly transfers scheduled 14:30 UTC Mondays (00:30 AEST / 01:30 AEDT Tuesday): products, product_variants — writing to `staging_products` / `staging_product_variants`. All transfers use `WRITE_TRUNCATE`. Files under `historical/` are **not** watched by any DTS and must be loaded manually once the backfill completes (see §5). |
+| BigQuery Scheduled Queries | Ten queries, all SQL synced from this repo via `scripts/deploy_scheduled_queries.sh` (`npm run deploy:sql`). Daily at 16:00 UTC: **Daily Shopify Merge - Orders** and **Daily Shopify Merge - Items**. 16:05 UTC: **Daily FX Merge**. 16:10 UTC: **Daily Shopify Merge - Refunds** then **Daily Shopify Merge - Refund Items**, then **Daily Shopify Merge - Fulfillments**, **Daily Shopify Merge - Fulfillment Items**, and **Daily Refundid Merge**. 16:15 UTC: **Daily Customers Refresh** (must run after all above — consumes v_orders/v_order_items which depend on refunds + fulfilments). Weekly Mondays 14:45 UTC: **Weekly Products Refresh** (`refresh_products_master.sql`). BigQuery stores each query's SQL text inside the scheduled-query resource itself, so `deploy:sql` is the only way in-repo SQL makes it into BigQuery. |
 | BigQuery Views | The `v_*` family (`v_fx_rates_filled`, `v_orders`, `v_order_items`, `v_customers`, `v_daily_sales`, `v_monthly_sales`, `v_discount_code_performance`, `v_cohort_retention`, `v_refunds`, `v_fulfillments`, `v_products`, `v_product_variants`, `v_product_performance`) is deployed via `scripts/deploy_views.sh` (`npm run deploy:views`). Views are `CREATE OR REPLACE`, so the script is idempotent. |
 
 ## 4. Data Model
 
-Two tables, joined on `order_id`. Nested arrays are avoided so the schema is easy for analysts (and LLMs) to reason about.
+Several flat tables, joined on `order_id` or `refundid_id`. Nested arrays are avoided so the schema is easy for analysts (and LLMs) to reason about.
 
 ### 4.1 `peppermayo.orders_master`
 
