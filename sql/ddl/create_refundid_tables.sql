@@ -26,3 +26,7 @@ CREATE OR REPLACE TABLE peppermayo.refundid_items_master (
     item_price FLOAT64,
     reason STRING
 );
+
+-- Create Search Index on the Master Table's JSON Payload
+CREATE SEARCH INDEX IF NOT EXISTS peppermayo_refundid_returns_master_payload_idx 
+ON `peppermayo.refundid_returns_master`(raw_payload);
