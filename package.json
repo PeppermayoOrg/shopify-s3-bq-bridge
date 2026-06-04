@@ -1,7 +1,7 @@
 {
   "name": "shopify-s3-bq-bridge",
   "version": "1.0.0",
-  "description": "Daily sync from Peppermayo's five Shopify storefronts (AU, US, UK, CA, EU) to a BigQuery warehouse, via S3. Contains the extraction Lambda, historical backfill script, and the SQL that drives the BigQuery Data Transfer + scheduled MERGE upserts.",
+  "description": "Daily sync from Peppermayo's five Shopify storefronts (AU, US, UK, CA, EU), and Refundid, to a BigQuery warehouse, via S3. Contains the extraction Lambda, historical backfill script, and the SQL that drives the BigQuery Data Transfer + scheduled MERGE upserts.",
   "private": true,
   "homepage": "https://github.com/PeppermayoOrg/shopify-s3-bq-bridge#readme",
   "bugs": {
