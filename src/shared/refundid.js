@@ -28,6 +28,7 @@ async function syncDailyRefundid() {
 
   for (const region of REGIONS) {
     try {
+      console.log(`[refundid/${region}] fetching token from SSM...`);
       const token = await getMerchantToken(region);
       let offset = 0;
       const limit = 100;
@@ -41,13 +42,20 @@ async function syncDailyRefundid() {
         url.searchParams.append("limit", limit.toString());
         url.searchParams.append("offset", offset.toString());
 
+        console.log(`[refundid/${region}] fetching API limit=${limit} offset=${offset}...`);
+        
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 15000);
+        
         const response = await fetch(url.toString(), {
           method: "GET",
           headers: {
             "x-refundid-api-key": token,
             Accept: "application/json",
           },
+          signal: controller.signal
         });
+        clearTimeout(timeoutId);
 
         if (!response.ok) {
           throw new Error(
@@ -58,6 +66,8 @@ async function syncDailyRefundid() {
         const data = await response.json();
 
         const records = data.returns || data.refunds || [];
+        console.log(`[refundid/${region}] received ${records.length} records. hasMore=${data.more}`);
+        
         if (records.length > 0) {
           collectedRecords.push(...records);
         }
@@ -77,6 +87,7 @@ async function syncDailyRefundid() {
 
         const s3Key = `daily/refundid/${region}/refundid_${dateStr}.jsonl`;
 
+        console.log(`[refundid/${region}] uploading ${collectedRecords.length} records to S3 at ${s3Key}...`);
         await s3.send(
           new PutObjectCommand({
             Bucket: S3_BUCKET,
@@ -84,6 +95,9 @@ async function syncDailyRefundid() {
             Body: jsonl,
           }),
         );
+        console.log(`[refundid/${region}] S3 upload complete.`);
+      } else {
+        console.log(`[refundid/${region}] no records to upload.`);
       }
     } catch (error) {
       console.error(
