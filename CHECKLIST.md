@@ -265,14 +265,14 @@ Dataset: `peppermayo` in `australia-southeast1`. S3 bucket:
 
 ---
 
-## 5. BigQuery Data Transfer Service — nine configs
+## 5. BigQuery Data Transfer Service — ten configs
 
 Project: `229575872283`. Location: `australia-southeast1`. Config IDs are
 pinned below so these checks run unattended.
 
-### 5.1 All nine DTS configs present with expected names + data source
+### 5.1 All ten DTS configs present with expected names + data source
 
-- [ ] Listing returns exactly these nine `amazon_s3` configs (plus any
+- [ ] Listing returns exactly these ten `amazon_s3` configs (plus any
       historical one-offs):
 
   ```sh
@@ -283,7 +283,7 @@ pinned below so these checks run unattended.
     | sort
   ```
 
-  Expect (order-independent) these nine rows:
+  Expect (order-independent) these ten rows:
 
   | Display name | Config ID |
   | --- | --- |
@@ -294,6 +294,7 @@ pinned below so these checks run unattended.
   | Shopify Daily Sync - Fulfillments (Staging) | `69eb61f4-0000-2a50-aa66-94eb2c1bbac8` |
   | Shopify Daily Sync - Fulfillment Items (Staging) | `69e9fc33-0000-299c-8adb-089e0827d1bc` |
   | Shopify Daily Sync - FX (Staging) | `69ea0159-0000-2dfe-8bd1-b8db38fc7672` |
+  | Daily Sync - Refundid (Staging) | `6a200205-0000-2c44-80d0-3c286d3e55e6` |
   | Shopify Weekly Sync - Products (Staging) | `69eba1eb-0000-201c-a2e0-94eb2c1bbcfa` |
   | Shopify Weekly Sync - Variants (Staging) | `69e9d8b3-0000-2425-832f-f4f5e804ca84` |
 
@@ -347,6 +348,7 @@ pinned below so these checks run unattended.
   | Shopify Daily Sync - Fulfillments (Staging) | `every day 15:30` | `staging_fulfillments` | `s3://peppermayo-shopify-orders/daily/fulfillments/*.csv` |
   | Shopify Daily Sync - Fulfillment Items (Staging) | `every day 15:30` | `staging_fulfillment_line_items` | `s3://peppermayo-shopify-orders/daily/fulfillment_items/*.csv` |
   | Shopify Daily Sync - FX (Staging) | `every day 15:30` | `staging_fx_rates` | `s3://peppermayo-shopify-orders/daily/fx/*.csv` |
+  | Daily Sync - Refundid (Staging) | `every day 15:30` | `staging_refundid` | `s3://peppermayo-shopify-orders/daily/refundid/*` |
   | Shopify Weekly Sync - Products (Staging) | `every monday 14:30` | `staging_products` | `s3://peppermayo-shopify-orders/weekly/products/*.csv` |
   | Shopify Weekly Sync - Variants (Staging) | `every monday 14:30` | `staging_product_variants` | `s3://peppermayo-shopify-orders/weekly/product_variants/*.csv` |
 
@@ -386,13 +388,13 @@ pinned below so these checks run unattended.
 
 ---
 
-## 6. BigQuery Scheduled Queries — nine queries
+## 6. BigQuery Scheduled Queries — ten queries
 
 Project: `229575872283`. Location: `australia-southeast1`.
 
-### 6.1 All nine scheduled queries present
+### 6.1 All ten scheduled queries present
 
-- [ ] Listing returns exactly these nine `scheduled_query` configs:
+- [ ] Listing returns exactly these ten `scheduled_query` configs:
 
   ```sh
   bq ls --transfer_config --transfer_location=australia-southeast1 \
@@ -414,6 +416,7 @@ Project: `229575872283`. Location: `australia-southeast1`.
   | Daily Shopify Merge - Fulfillments | `69edafd8-0000-2766-88b4-3c286d33ef46` | `every day 16:10` |
   | Daily Shopify Merge - Fulfillment Items | `69ed4398-0000-2944-a0ca-94eb2c1bb6dc` | `every day 16:10` |
   | Daily Customers Refresh | `69e9ec9f-0000-23a8-90ac-f403045d80ea` | `every day 16:15` |
+  | Daily Refundid Merge | `6a20270e-0000-26da-8bf5-883d24fff4d0` | `every day 16:20` |
   | Weekly Products Refresh | `69ea8d00-0000-23ca-9040-94eb2c1b9828` | `every monday 14:45` |
 
 ### 6.2 Schedule + SQL body match the repo
@@ -459,7 +462,7 @@ Project: `229575872283`. Location: `australia-southeast1`.
   npm run deploy:sql
   ```
 
-  Requires the nine `*_CFG` env vars, e.g.:
+  Requires the ten `*_CFG` env vars, e.g.:
 
   ```sh
   export ORDERS_CFG=projects/229575872283/locations/australia-southeast1/transferConfigs/69e9381c-0000-24bd-966d-94eb2c1bbc54
@@ -470,6 +473,7 @@ Project: `229575872283`. Location: `australia-southeast1`.
   export FULFILLMENTS_CFG=projects/229575872283/locations/australia-southeast1/transferConfigs/69edafd8-0000-2766-88b4-3c286d33ef46
   export FULFILLMENT_ITEMS_CFG=projects/229575872283/locations/australia-southeast1/transferConfigs/69ed4398-0000-2944-a0ca-94eb2c1bb6dc
   export CUSTOMERS_CFG=projects/229575872283/locations/australia-southeast1/transferConfigs/69e9ec9f-0000-23a8-90ac-f403045d80ea
+  export REFUNDID_CFG=projects/229575872283/locations/australia-southeast1/transferConfigs/6a20270e-0000-26da-8bf5-883d24fff4d0
   export PRODUCTS_CFG=projects/229575872283/locations/australia-southeast1/transferConfigs/69ea8d00-0000-23ca-9040-94eb2c1b9828
   ```
 
@@ -568,7 +572,7 @@ Run these after the first full daily cycle completes.
 - [ ] Trigger one failed Lambda (e.g. temporarily revoke one SSM parameter)
       and confirm the CloudWatch **Errors** alarm fires and emails arrive.
       Restore the parameter afterwards.
-- [ ] Document the nine transferConfig IDs in your password manager alongside
+- [ ] Document the ten transferConfig IDs in your password manager alongside
       the DTS IAM key (per [INFRA.md](INFRA.md)).
 - [ ] Bookmark `SELECT * FROM peppermayo.v_pipeline_health` as the daily
       canary query.

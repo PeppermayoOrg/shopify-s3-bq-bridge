@@ -30,7 +30,7 @@ sql/dml/                                MERGE / REFRESH statements run by BigQue
   - SSM parameters at `/shopify/peppermayo-<region>/token` (SecureString) for each of `au`, `us`, `uk`, `ca`, `eu`
   - Lambda execution role with `ssm:GetParameter` on those parameters and `s3:PutObject` on the bucket
 - GCP project with BigQuery dataset `peppermayo` in `australia-southeast1`
-- BigQuery Data Transfer Service configured against the S3 bucket — **nine** configs:
+- BigQuery Data Transfer Service configured against the S3 bucket — **ten** configs:
   - **Shopify Daily Sync - Orders (Staging)**           → `daily/orders/*.csv`            → `staging_orders`
   - **Shopify Daily Sync - Items (Staging)**            → `daily/items/*.csv`             → `staging_order_items`
   - **Shopify Daily Sync - Refunds (Staging)**          → `daily/refunds/*.csv`           → `staging_refunds`
@@ -38,9 +38,10 @@ sql/dml/                                MERGE / REFRESH statements run by BigQue
   - **Shopify Daily Sync - Fulfillments (Staging)**     → `daily/fulfillments/*.csv`      → `staging_fulfillments`
   - **Shopify Daily Sync - Fulfillment Items (Staging)** → `daily/fulfillment_items/*.csv` → `staging_fulfillment_line_items`
   - **Shopify Daily Sync - FX (Staging)**               → `daily/fx/*.csv`                → `staging_fx_rates`
+  - **Daily Sync - Refundid (Staging)**                 → `daily/refundid/*`              → `staging_refundid`
   - **Shopify Weekly Sync - Products (Staging)**        → `weekly/products/*.csv`         → `staging_products`
   - **Shopify Weekly Sync - Variants (Staging)**        → `weekly/product_variants/*.csv` → `staging_product_variants`
-- Nine BigQuery Scheduled Queries covering the seven MERGEs plus the two refreshes (see [BigQuery Scheduled Queries to configure](#bigquery-scheduled-queries-to-configure) below)
+- Ten BigQuery Scheduled Queries covering the eight MERGEs plus the two refreshes (see [BigQuery Scheduled Queries to configure](#bigquery-scheduled-queries-to-configure) below)
 - Two EventBridge rules on the Lambda: daily `cron(0 15 * * ? *)` with no payload, and weekly `cron(0 14 ? * MON *)` with payload `{"mode":"products"}`
 
 ## Install
@@ -140,7 +141,7 @@ hard-coded in the script: `v_fx_rates_filled` \u2192 `v_orders` \u2192
 
 ## BigQuery Scheduled Queries to configure
 
-Create these nine scheduled queries in the BigQuery console once per
+Create these ten scheduled queries in the BigQuery console once per
 environment. Each one has its SQL **synced from this repo** via
 `npm run deploy:sql` — paste any non-empty SQL at creation time; the
 actual body is pushed immediately afterwards.
@@ -155,6 +156,7 @@ actual body is pushed immediately afterwards.
 | Daily Shopify Merge - Fulfillments | `every day 16:10` | `sql/dml/merge_fulfillments.sql` |
 | Daily Shopify Merge - Fulfillment Items | `every day 16:10` | `sql/dml/merge_fulfillment_line_items.sql` |
 | Daily Customers Refresh | `every day 16:15` | `sql/dml/refresh_customers_master.sql` |
+| Daily Refundid Merge | `every day 16:20` | `sql/dml/merge_refundid.sql` |
 | Weekly Products Refresh | `every monday 14:45` | `sql/dml/refresh_products_master.sql` |
 
 All queries run in `australia-southeast1`. Ordering constraints:
@@ -178,7 +180,7 @@ resource itself, so after editing the `.sql` files you must push the new
 bodies up:
 
 ```sh
-npm run deploy:sql                        # push all nine
+npm run deploy:sql                        # push all ten
 npm run deploy:sql -- orders              # orders only
 npm run deploy:sql -- items               # items only
 npm run deploy:sql -- fx                  # fx merge only
