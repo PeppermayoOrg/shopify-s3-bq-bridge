@@ -37,7 +37,11 @@ CREATE OR REPLACE VIEW `peppermayo.v_refundid_returns_detailed`
   
   -- Additional Top-level Details
   exchange OPTIONS(description="Exchange details, if applicable."),
-  shipping_label OPTIONS(description="Shipping label details, if applicable."),
+  shipping_label OPTIONS(description="Shipping label details as JSON, if applicable."),
+  tracking_status OPTIONS(description="Latest tracking status of the return parcel (e.g. TRANSIT, DELIVERED). Refreshed nightly."),
+  tracking_status_date OPTIONS(description="When the tracking status last changed."),
+  tracking_carrier OPTIONS(description="Carrier of the return label."),
+  tracking_number OPTIONS(description="Tracking number of the return label."),
   standard_return_id OPTIONS(description="Standard return ID."),
   standard_return_encrypted_id OPTIONS(description="Encrypted standard return ID."),
   
@@ -107,7 +111,11 @@ SELECT
     JSON_EXTRACT(r.raw_payload, '$.close_breakdown.refunds') AS refund_methods_json,
     
     JSON_EXTRACT_SCALAR(r.raw_payload, '$.exchange') AS exchange,
-    JSON_EXTRACT_SCALAR(r.raw_payload, '$.shipping_label') AS shipping_label,
+    JSON_EXTRACT(r.raw_payload, '$.shipping_label') AS shipping_label,
+    JSON_EXTRACT_SCALAR(r.raw_payload, '$.shipping_label.tracking.status') AS tracking_status,
+    SAFE_CAST(JSON_EXTRACT_SCALAR(r.raw_payload, '$.shipping_label.tracking.status_date') AS TIMESTAMP) AS tracking_status_date,
+    JSON_EXTRACT_SCALAR(r.raw_payload, '$.shipping_label.tracking.carrier') AS tracking_carrier,
+    JSON_EXTRACT_SCALAR(r.raw_payload, '$.shipping_label.tracking.tracking_number') AS tracking_number,
     JSON_EXTRACT_SCALAR(r.raw_payload, '$.standard_return_id') AS standard_return_id,
     JSON_EXTRACT_SCALAR(r.raw_payload, '$.standard_return_encrypted_id') AS standard_return_encrypted_id,
     
