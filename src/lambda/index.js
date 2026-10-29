@@ -274,6 +274,15 @@ exports.handler = async (event = {}) => {
   const dateStr = now.toISOString().split("T")[0];
   const mode = event.mode || "daily";
 
+  // One-off Refundid catch-up: `{ "mode": "refundid", "lodged_days": 60 }` re-pulls every return created in the
+  // last N days, so returns copied before the updated-date sync existed get their current tracking.
+  if (mode === "refundid") {
+    const lodgedDays = Number(event.lodged_days) || 60;
+    console.log(`[refundid] catch-up of returns lodged in the last ${lodgedDays} days`);
+    await syncDailyRefundid({ lodgedDays });
+    return { statusCode: 200, body: JSON.stringify({ mode: "refundid", lodged_days: lodgedDays, date: dateStr }) };
+  }
+
   // Weekly products refresh — invoked by a separate EventBridge rule
   // with `{ "mode": "products" }` in the payload. Runs independently
   // of the daily order/FX sync so one doesn't block or crash the other.

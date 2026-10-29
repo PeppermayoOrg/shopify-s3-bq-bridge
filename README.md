@@ -68,6 +68,27 @@ EventBridge schedule: `cron(0 15 * * ? *)` (15:00 UTC — 01:00 AEST / 02:00 AED
 
 Required environment variables: none.
 
+### Refundid returns and tracking
+
+Each night the Lambda pulls two sets of Peppermayo returns per region from the Refundid API and writes them to one
+file, `daily/refundid/<region>/refundid_<date>.jsonl`:
+
+- returns **lodged** yesterday or today (new returns), and
+- returns **updated** yesterday or today (`date_type=UPDATED`: their status or tracking status changed), so tracking
+  moves (in transit, delivered, lost) and closes reach BigQuery after a return's first day.
+
+Each record carries `_peppermayo_fetched_at`. The DTS reloads every file under `daily/refundid/` nightly, so the same
+return can appear in several files; `merge_refundid_returns.sql` keeps the most recently fetched copy.
+`v_refundid_returns_detailed` exposes `tracking_status`, `tracking_status_date`, `tracking_carrier` and
+`tracking_number`.
+
+One-off catch-up (re-pulls every return lodged in the last N days, written to `refundid_<date>_last<N>d.jsonl`):
+
+```sh
+aws lambda invoke --function-name <lambda-function-name> --cli-binary-format raw-in-base64-out \
+  --payload '{"mode":"refundid","lodged_days":60}' /tmp/refundid-catchup.json
+```
+
 Optional: `S3_BUCKET` to override the default bucket name.
 
 ## Create the BigQuery tables

@@ -24,7 +24,12 @@ USING (
     FROM peppermayo.staging_refundid_returns
     WHERE COALESCE(LAX_STRING(raw_json.standard_return_id), LAX_STRING(raw_json.refundid_id)) IS NOT NULL
   )
-  QUALIFY ROW_NUMBER() OVER(PARTITION BY refundid_id ORDER BY updated_at DESC, ingested_at DESC) = 1
+  -- Every file under daily/refundid/ is reloaded nightly, so one return can appear in several files: keep the copy
+  -- fetched most recently (files from before _peppermayo_fetched_at existed sort last).
+  QUALIFY ROW_NUMBER() OVER(
+    PARTITION BY refundid_id
+    ORDER BY LAX_STRING(raw_payload._peppermayo_fetched_at) DESC NULLS LAST, updated_at DESC, ingested_at DESC
+  ) = 1
 ) S
 ON T.refundid_id = S.refundid_id
 WHEN MATCHED THEN
@@ -60,8 +65,8 @@ FROM (
   FROM peppermayo.staging_refundid_returns
   WHERE COALESCE(LAX_STRING(raw_json.standard_return_id), LAX_STRING(raw_json.refundid_id)) IS NOT NULL
   QUALIFY ROW_NUMBER() OVER(
-    PARTITION BY COALESCE(LAX_STRING(raw_json.standard_return_id), LAX_STRING(raw_json.refundid_id)) 
-    ORDER BY ingested_at DESC
+    PARTITION BY COALESCE(LAX_STRING(raw_json.standard_return_id), LAX_STRING(raw_json.refundid_id))
+    ORDER BY LAX_STRING(raw_json._peppermayo_fetched_at) DESC NULLS LAST, ingested_at DESC
   ) = 1
 ) p,
 UNNEST(JSON_QUERY_ARRAY(p.raw_json.line_items)) AS item;
